@@ -58,6 +58,17 @@ Mapping of deployment-IDs to instructions for forwarding function results to
 other devices and calling their functions
 """
 
+# Integrate sentry tracing into requests library
+class SentrySession(requests.Session):
+    def request(self, *args, **kwargs):
+        with sentry_sdk.start_span(op="requests.request", description=args[0]):
+            # Add span to request headers
+            kwargs.setdefault("headers", {})
+            kwargs["headers"]["sentry-trace"] = sentry_sdk.Hub.current.trace_id
+
+            return super().request(*args, **kwargs)
+
+requests = SentrySession()
 
 def create_app(*args, **kwargs) -> Flask:
     """
