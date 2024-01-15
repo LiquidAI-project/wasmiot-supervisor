@@ -7,7 +7,7 @@ from flask.logging import default_handler as flask_handler
 from flask import Flask
 
 
-def init_app(app: Flask, logger: logging.Logger = None):
+def init_app(app: Flask, logger: logging.Logger = logging.getLogger(__name__)):
     """
     Integrate our own logging interface into application.
 
@@ -25,11 +25,12 @@ def init_app(app: Flask, logger: logging.Logger = None):
     logger.addHandler(flask_handler)
 
     if app.config.get("SENTRY_DSN"):
-        from .sentry import init_app as init_sentry_logging  # pylint: disable=import-outside-toplevel
+        from .sentry import init_app as init_sentry_logging  # pylint: disable=import-outside-toplevel,relative-beyond-top-level
         init_sentry_logging(app)
 
     try:
-        from flask_rich import RichApplication
+        from flask_rich import RichApplication  # pylint: disable=import-outside-toplevel
         RichApplication(app)
     except ImportError:
         pass
+ 

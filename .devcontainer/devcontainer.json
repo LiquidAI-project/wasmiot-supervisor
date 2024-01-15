@@ -19,7 +19,8 @@
 	"runArgs": ["--network=wasmiot-net", "--privileged"],
 	"containerEnv": {
 		// Setup flask debug mode to be on in devcontainer
-		"FLASK_DEBUG": "1"
+		"FLASK_DEBUG": "1",
+		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://jaeger:4318"
 	},
 
 	// Don't start flask app by default.

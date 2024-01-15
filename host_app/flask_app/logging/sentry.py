@@ -9,7 +9,6 @@ import sentry_sdk
 from flask import Flask
 from sentry_sdk.integrations.flask import FlaskIntegration
 
-
 def init_app(app: Flask):
     """
     Integrate sentry logging into application.
@@ -36,6 +35,8 @@ def init_app(app: Flask):
         # Flask integration
         FlaskIntegration()
     ]
+
+    instrumenter = 'otel'
 
     if sentry_dsn:
         sentry = sentry_sdk.init(
