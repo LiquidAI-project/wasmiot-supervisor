@@ -11,8 +11,6 @@ import random
 import socket
 from pathlib import Path
 import queue
-import string
-import struct
 import threading
 from typing import Any, Dict, Generator, Tuple
 
@@ -21,6 +19,9 @@ from flask import Flask, Blueprint, jsonify, current_app, request, send_file
 from werkzeug.serving import get_sockaddr, select_address_family
 from werkzeug.serving import is_running_from_reloader
 from werkzeug.utils import secure_filename
+
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.trace import Tracer, get_tracer
 
 import requests
 from zeroconf import ServiceInfo, Zeroconf
@@ -68,7 +69,7 @@ bp = Blueprint(os.environ["FLASK_APP"], os.environ["FLASK_APP"])
 
 logger = logging.getLogger(FLASK_APP)
 
-deployments = {}
+deployments: Dict[str, Deployment] = {}
 """
 Mapping of deployment-IDs to instructions for forwarding function results to
 other devices and calling their functions
@@ -128,6 +129,18 @@ request_history = []
 wasm_queue = queue.Queue()
 '''Queue of work for asynchronous WebAssembly execution'''
 
+
+class FlaskApp(Flask):
+    """
+    Supervisor wrapper for :class:`flask.Flask`.
+    """
+    zeroconf: Zeroconf
+    "Zeroconf instance for advertising services"
+    
+    tracer: TracerProvider
+    "OpenTelemetry tracer instance"
+
+
 def module_mount_path(module_name: str, filename: str | None = None) -> Path:
     """
     Return path for a file that will eventually be made available for a
@@ -143,7 +156,6 @@ def do_wasm_work(entry: RequestEntry):
     Return response of the possible call made or the raw result if chaining is
     not required.
     '''
-
     deployment = deployments[entry.deployment_id]
 
     logger.debug("Preparing Wasm module %r", entry.module_name)
@@ -204,7 +216,7 @@ def wasm_worker():
         make_history(entry)
         wasm_queue.task_done()
 
-def create_app(*args, **kwargs) -> Flask:
+def create_app(*args, **kwargs) -> FlaskApp:
     '''
     Create a new Flask application.
 
@@ -213,7 +225,7 @@ def create_app(*args, **kwargs) -> Flask:
     if is_running_from_reloader():
         raise RuntimeError("Running from reloader is not supported.")
     
-    app = Flask(os.environ.get("FLASK_APP", __name__), *args, **kwargs)
+    app = FlaskApp(os.environ.get("FLASK_APP", __name__), *args, **kwargs)
 
     # Create instance directory if it does not exist.
     Path(app.instance_path).mkdir(exist_ok=True)
@@ -232,11 +244,18 @@ def create_app(*args, **kwargs) -> Flask:
     # Load config from instance/ -directory
     app.config.from_pyfile("config.py", silent=True)
 
-    # add sentry logging
-    app.config.setdefault('SENTRY_DSN', os.environ.get('SENTRY_DSN'))
 
     from .logging.logger import init_app as init_logging  # pylint: disable=import-outside-toplevel
     init_logging(app, logger=logger)
+
+    # add opentelemetry logging
+    from .logging.otel import init_app as init_otel  # pylint: disable=import-outside-toplevel
+    init_otel(app)
+
+    # add sentry logging
+    app.config.setdefault('SENTRY_DSN', os.environ.get('SENTRY_DSN'))
+    from .logging.sentry import init_app as init_sentry  # pylint: disable=import-outside-toplevel
+    init_sentry(app)
 
     app.register_blueprint(bp)
 
@@ -249,7 +268,7 @@ def create_app(*args, **kwargs) -> Flask:
     return app
 
 
-def init_zeroconf(app: Flask):
+def init_zeroconf(app: FlaskApp):
     """
     Initialize zeroconf service
     """
@@ -296,7 +315,7 @@ def init_wasm_worker():
     atexit.register(teardown_worker)
 
 
-def teardown_zeroconf(app: Flask):
+def teardown_zeroconf(app: FlaskApp):
     """
     Stop advertising mdns services and tear down zeroconf.
     """
@@ -430,7 +449,7 @@ def run_module_function(deployment_id, module_name, function_name, filename=None
         request.method,
         request.args,
         input_file_paths,
-        datetime.now()
+        datetime.utcnow()
     )
 
     # Assume that the work wont take long and do it synchronously on GET.
