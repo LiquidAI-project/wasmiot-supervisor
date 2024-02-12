@@ -165,10 +165,11 @@ def do_wasm_work(entry: RequestEntry):
     # Do the next call, passing chain along and return immediately (i.e. the
     # answer to current request should not be such, that it significantly blocks
     # the whole chain).
-    this_result, next_call = deployment.interpret_call_from(
+    this_result, next_call = deployment.interpret_call_from(  # TODO: return multiple 'nexts': next_calls
         module.name, entry.function_name, raw_output
     )
 
+    # TODO: Loop over multiple next calls, if there are any.
     if not isinstance(next_call, CallData):
         # No sub-calls needed.
         return this_result
