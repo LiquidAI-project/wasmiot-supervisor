@@ -40,6 +40,7 @@ from host_app.wasm_utils.wasmtime import WasmtimeRuntime
 from host_app.utils.configuration import get_device_description, get_wot_td
 from host_app.utils.routes import endpoint_failed
 from host_app.utils.deployment import Deployment, CallData
+from host_app.utils.logger import get_logger
 
 
 _MODULE_DIRECTORY = 'wasm-modules'
@@ -360,6 +361,7 @@ def get_listening_address(app: Flask) -> Tuple[str, int]:
 @bp.route('/.well-known/wasmiot-device-description')
 def wasmiot_device_description():
     '''Return the device description containing host functions in JSON'''
+    get_logger(request).info("Device description request served")
     return jsonify(get_device_description())
 
 @bp.route('/.well-known/wot-thing-description')
@@ -370,6 +372,7 @@ def thingi_description():
 @bp.route('/health')
 def thingi_health():
     '''Return a report of the current health status of this thing'''
+    get_logger(request).info("Health check done")
     return jsonify({
          "cpuUsage": random.random()
     })
