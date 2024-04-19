@@ -1,42 +1,95 @@
 # utils/logger.py
 import logging
-from logging.handlers import HTTPHandler
+from logging.handlers import HTTPHandler, QueueHandler, QueueListener
 import os
 import requests
+import json
+import queue
 
-# Define a custom handler for HTTP logs
+class JsonFormatter(logging.Formatter):
+    """
+    Formats the log messages as JSON strings.
+    """
+    def format(self, record):
+        """
+        Format the specified record as json string.
+        """
+        record.asctime = self.formatTime(record, self.datefmt)
+        json_message = {
+            "timestamp": record.asctime,
+            "moduleName": record.name,
+            "levelname": record.levelname,
+            "message": record.getMessage(),
+            "funcName": record.funcName,
+        }
+        return json.dumps(json_message)
+
 class RequestsHandler(HTTPHandler):
-    # Initialize the handler with a request object
+    """
+    Sends the log messages to a specified URL.
+    """
     def __init__(self, request):
-        # Store the request object for later use
+        """
+        Initialize the handler with a request object.
+        """
         self.request = request
+        self.logging_endpoint = os.getenv('WASMIOT_LOGGING_ENDPOINT', None)
+        self.queue = queue.Queue(-1)
+        self.queue_handler = QueueHandler(self.queue)
+
         try:
-            # If the request has a remote address, use it as the host for the HTTPHandler
-            if hasattr(self.request, 'remote_addr'):
+            """
+            If the request has a remote address, use it as the host for the HTTPHandler
+            Otherwise, use 'localhost' as the host
+            """
+            if self.logging_endpoint:
+                super().__init__(self.logging_endpoint, '/device/logs', method='POST')
+            elif hasattr(self.request, 'remote_addr'):
                 super().__init__(self.request.remote_addr, '/device/logs', method='POST')
             else:
-                # If the request doesn't have a remote address, use 'localhost' as the host
                 super().__init__('localhost', '/device/logs', method='POST')
         except Exception as e:
             print(f"Error initializing RequestsHandler: {e}")
 
-    # Emit a log record
+        self.queue_listener = QueueListener(self.queue, self)
+
     def emit(self, record):
+        self.queue_handler.emit(record)
+
+    def start(self):
+        self.queue_listener.start()
+
+    def stop(self):
+        self.queue_listener.stop()
+
+    def handle(self, record):
+        """
+        Conditionally emit the specified logging record.
+        """
         log_entry = self.format(record)
         try:
-            # If the request has a remote address, send the log to that address
-            if hasattr(self.request, 'remote_addr'):
+            """
+            If the request has a remote address, send the log to that address
+            Otherwise, print an error message
+            """
+            if self.logging_endpoint:
+                url = f"{self.logging_endpoint}"
+                response = requests.post(url, data={'logData': log_entry})
+                # print(f"Response: {response.status_code}, {response.text}")
+            elif hasattr(self.request, 'remote_addr'):
                 url = f"http://{self.request.remote_addr}:3000/device/logs"
                 response = requests.post(url, data={'logData': log_entry})
                 print(f"Sent log: {log_entry}")
                 # print(f"Response: {response.status_code}, {response.text}")
             else:
                 print("No remote address available for logging.")
-        except requests.exceptions.RequestException as e:
-            print(f"Error connecting to the URL: {e}")
+        except Exception as e:
+            print(f"Error sending log: {e}")
 
-# Set up a logger with a RequestsHandler
 def setup_logger(request):
+    """
+    Set up a logger with a RequestsHandler.
+    """
     # Create a logger with the name from the "FLASK_APP" environment variable
     logger = logging.getLogger(os.environ["FLASK_APP"])
 
@@ -45,15 +98,17 @@ def setup_logger(request):
 
     # Create a RequestsHandler with the given request and set its formatter
     handler = RequestsHandler(request)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = JsonFormatter()
     handler.setFormatter(formatter)
 
     logger.addHandler(handler)
 
     return logger
 
-# Get a logger, setting it up if necessary
 def get_logger(request):
+    """
+    Get a logger, setting it up if necessary.
+    """
     logger_name = os.environ["FLASK_APP"]
 
     # Get the logger with the given name

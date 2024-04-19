@@ -236,6 +236,9 @@ def create_app(*args, **kwargs) -> Flask:
     # add sentry logging
     app.config.setdefault('SENTRY_DSN', os.environ.get('SENTRY_DSN'))
 
+    # add wasmiot-orchestrator logging endpoint
+    app.config.setdefault('WASMIOT_LOGGING_ENDPOINT', os.environ.get('WASMIOT_LOGGING_ENDPOINT'))
+
     sentry_dsn = app.config.get("SENTRY_DSN")
 
     if sentry_dsn:
@@ -714,10 +717,12 @@ def deployment_create():
     '''
     data = request.get_json(silent=True)
     if not data:
+        get_logger(request).error('No deployment data found')
         return jsonify({'message': 'Non-existent or malformed deployment data'})
     modules = data['modules']
 
     if not modules:
+        get_logger(request).error('No modules listed')
         return jsonify({'message': 'No modules listed'})
 
     try:
@@ -750,6 +755,7 @@ def deployment_create():
     )
 
     # If the fetching did not fail (that is, crash), return success.
+    get_logger(request).info('Deployment created')
     return jsonify({'status': 'success'})
 
 @bp.route('/upload_module', methods=['POST'])
@@ -759,11 +765,14 @@ def upload_module():
         return jsonify({'status': 'no module attached'})
     file = request.files['module']
     if file.filename is None:
+        get_logger(request).error('No filename found')
         return jsonify({'status': 'No filename found'})
     if file.filename.rsplit('.', 1)[1].lower() != 'wasm':
+        get_logger(request).error('Only .wasm-files accepted')
         return jsonify({'status': 'Only .wasm-files accepted'})
     filename = secure_filename(file.filename)
     file.save(os.path.join(current_app.config['MODULE_FOLDER'], filename))
+    get_logger(request).info(f'Module {filename} uploaded successfully')
     return jsonify({'status': 'success'})
 
 @bp.route('/upload_params', methods=['POST'])
@@ -772,11 +781,14 @@ def upload_params():
         return jsonify({'status': 'no params attached'})
     file = request.files['params']
     if file.filename is None:
+        get_logger(request).error('No filename found')
         return jsonify({'status': 'No filename found'})
     if file.filename.rsplit('.', 1)[1].lower() != 'json':
+        get_logger(request).error('Only json-files accepted')
         return jsonify({'status': 'Only json-files accepted'})
     filename = secure_filename(file.filename)
     file.save(os.path.join(current_app.config['PARAMS_FOLDER'], filename))
+    get_logger(request).info(f'Params {filename} uploaded successfully')
     return jsonify({'status': 'success'})
 
 def fetch_modules(modules) -> list[ModuleConfig]:
