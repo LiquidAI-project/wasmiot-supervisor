@@ -5,6 +5,7 @@ import os
 import requests
 import json
 import queue
+import socket
 
 class JsonFormatter(logging.Formatter):
     """
@@ -17,11 +18,19 @@ class JsonFormatter(logging.Formatter):
         record.asctime = self.formatTime(record, self.datefmt)
         json_message = {
             "timestamp": record.asctime,
-            "moduleName": record.name,
-            "levelname": record.levelname,
+            "loglevel": record.levelname,
             "message": record.getMessage(),
             "funcName": record.funcName,
+            "deviceName": record.name,
+            "deviceIP": socket.gethostbyname(socket.gethostname()),
         }
+
+        # Add the extra information to the JSON message
+        if hasattr(record, 'request'):
+            json_message['request_id'] = record.request.request_id
+            json_message['deployment_id'] = record.request.deployment_id
+            json_message['module_name'] = record.request.module_name
+
         return json.dumps(json_message)
 
 class RequestsHandler(HTTPHandler):
@@ -114,9 +123,9 @@ def get_logger(request):
     # Get the logger with the given name
     logger = logging.getLogger(logger_name)
 
-    # Check if the logger has any handlers
+    # Check if the logger has any handlers of type RequestsHandler
     # If it doesn't, it means the logger hasn't been set up yet
-    if not logger.hasHandlers():
+    if not any(isinstance(handler, RequestsHandler) for handler in logger.handlers):
         logger = setup_logger(request)
 
     return logger

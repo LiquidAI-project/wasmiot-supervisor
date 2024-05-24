@@ -439,6 +439,8 @@ def run_module_function(deployment_id, module_name, function_name, filename=None
         datetime.now()
     )
 
+    get_logger(request).info("Module run", extra={"request": entry})
+
     # Assume that the work wont take long and do it synchronously on GET.
     if request.method.lower() == 'get':
         make_history(entry)
