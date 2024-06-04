@@ -35,6 +35,7 @@ from host_app.wasm_utils.wasmtime import WasmtimeRuntime
 from host_app.utils.configuration import get_device_description, get_wot_td
 from host_app.utils.routes import endpoint_failed
 from host_app.utils.deployment import Deployment, CallData
+from host_app.utils.logger import get_logger
 
 
 _MODULE_DIRECTORY = 'wasm-modules'
@@ -235,6 +236,9 @@ def create_app(*args, **kwargs) -> Flask:
     # add sentry logging
     app.config.setdefault('SENTRY_DSN', os.environ.get('SENTRY_DSN'))
 
+    # add wasmiot-orchestrator logging endpoint
+    app.config.setdefault('WASMIOT_LOGGING_ENDPOINT', os.environ.get('WASMIOT_LOGGING_ENDPOINT'))
+
     from .logging.logger import init_app as init_logging  # pylint: disable=import-outside-toplevel
     init_logging(app, logger=logger)
 
@@ -352,6 +356,7 @@ def get_listening_address(app: Flask) -> Tuple[str, int]:
 @bp.route('/.well-known/wasmiot-device-description')
 def wasmiot_device_description():
     '''Return the device description containing host functions in JSON'''
+    get_logger(request).info("Device description request served")
     return jsonify(get_device_description())
 
 @bp.route('/.well-known/wot-thing-description')
@@ -362,6 +367,7 @@ def thingi_description():
 @bp.route('/health')
 def thingi_health():
     '''Return a report of the current health status of this thing'''
+    get_logger(request).info("Health check done")
     return jsonify({
          "cpuUsage": random.random()
     })
@@ -433,6 +439,8 @@ def run_module_function(deployment_id, module_name, function_name, filename=None
         datetime.now()
     )
 
+    get_logger(request).info("Module run", extra={"request": entry})
+
     # Assume that the work wont take long and do it synchronously on GET.
     if request.method.lower() == 'get':
         make_history(entry)
@@ -462,10 +470,12 @@ def deployment_create():
     '''
     data = request.get_json(silent=True)
     if not data:
+        get_logger(request).error('No deployment data found')
         return jsonify({'message': 'Non-existent or malformed deployment data'})
     modules = data['modules']
 
     if not modules:
+        get_logger(request).error('No modules listed')
         return jsonify({'message': 'No modules listed'})
 
     try:
@@ -498,6 +508,7 @@ def deployment_create():
     )
 
     # If the fetching did not fail (that is, crash), return success.
+    get_logger(request).info('Deployment created')
     return jsonify({'status': 'success'})
 
 def fetch_modules(modules) -> list[ModuleConfig]:
