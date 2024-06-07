@@ -168,6 +168,13 @@ class TakeImageStaticSize(RemoteFunction):
                 with open(temp_path, "rb") as f:
                     data = f.read()
 
+            # Write the image to disk for debugging.
+            try:
+                with open("camera.jpg", "wb") as f:
+                    f.write(data)
+            except IOError as error:
+                print("Error writing image to disk: ", error)
+
             # Read the required size from memory.
             out_len_bytes, fail = self.runtime.read_from_memory(size_ptr, 4, self.runtime.current_module_name)
             if fail:
