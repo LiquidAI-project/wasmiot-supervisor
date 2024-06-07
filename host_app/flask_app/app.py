@@ -213,7 +213,7 @@ def create_app(*args, **kwargs) -> Flask:
     '''
     if is_running_from_reloader():
         raise RuntimeError("Running from reloader is not supported.")
-    
+
     app = Flask(os.environ.get("FLASK_APP", __name__), *args, **kwargs)
 
     # Create instance directory if it does not exist.
@@ -331,7 +331,7 @@ def get_listening_address(app: Flask) -> Tuple[str, int]:
     server_name = app.config.get("SERVER_NAME")
     if server_name:
         host, _, port = server_name.partition(":")
-    port = port or app.config.get("PORT") or 5000
+    port = port or app.config.get("PORT") or int(os.environ.get("FLASK_PORT", "5000"))
 
     # Fallback
     if not host:

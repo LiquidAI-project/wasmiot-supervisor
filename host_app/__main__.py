@@ -5,6 +5,7 @@ import os
 os.environ.setdefault("FLASK_APP", "host_app")
 os.environ.setdefault("FLASK_ENV", "development")
 os.environ.setdefault("FLASK_DEBUG", "1")
+os.environ.setdefault("FLASK_PORT", "5000")
 
 # Set wasmiot-orchestrator logging endpoint to send logs to the orchestrator. ex-http://172.21.0.3:3000/device/logs
 os.environ.setdefault("WASMIOT_LOGGING_ENDPOINT", "")
@@ -26,6 +27,6 @@ if __name__ == "__main__":
     #wasm_daemon.start()
 
     app = flask_app.create_app(instance_path=INSTANCE_PATH)
+    port_number = int(os.environ.get("FLASK_PORT", "5000"))
 
-    app.run(debug=debug, host="0.0.0.0", use_reloader=False)
-
+    app.run(debug=debug, host="0.0.0.0", port=port_number, use_reloader=False)
