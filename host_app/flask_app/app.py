@@ -205,6 +205,7 @@ def wasm_worker():
         make_history(entry)
         wasm_queue.task_done()
 
+
 def create_app(*args, **kwargs) -> Flask:
     '''
     Create a new Flask application.
@@ -213,7 +214,7 @@ def create_app(*args, **kwargs) -> Flask:
     '''
     if is_running_from_reloader():
         raise RuntimeError("Running from reloader is not supported.")
-    
+
     app = Flask(os.environ.get("FLASK_APP", __name__), *args, **kwargs)
 
     # Create instance directory if it does not exist.
@@ -239,78 +240,20 @@ def create_app(*args, **kwargs) -> Flask:
     # add sentry logging
     app.config.setdefault('SENTRY_DSN', os.environ.get('SENTRY_DSN'))
 
-
     from .logging.logger import init_app as init_logging  # pylint: disable=import-outside-toplevel
     init_logging(app, logger=logger)
 
     app.register_blueprint(bp)
 
     # Enable mDNS advertising.
-    init_zeroconf(app)
+    from .zc import WebthingZeroconf # pylint: disable=import-outside-toplevel
+    WebthingZeroconf(app)
 
     # Start thread that handles the Wasm work queue.
     init_wasm_worker()
 
     return app
 
-
-def init_zeroconf(app: Flask):
-    """
-    Initialize zeroconf service
-    """
-    server_name = app.config['SERVER_NAME'] or socket.gethostname()
-    host, port = get_listening_address(app)
-
-    properties={
-        'path': '/',
-        'tls': 1 if app.config.get("PREFERRED_URL_SCHEME") == "https" else 0,
-    }
-
-    service_info = ServiceInfo(
-        type_='_webthing._tcp.local.',
-        name=f"{app.name}._webthing._tcp.local.",
-        addresses=[socket.inet_aton(host)],
-        port=port,
-        properties=properties,
-        server=f"{server_name}.local.",
-    )
-
-    app.zeroconf = Zeroconf()
-    app.zeroconf.register_service(service_info)
-
-    # Register service to orchestrator if ORCHESTRATOR_URL is set
-    if orchestrator_url := app.config.get("ORCHESTRATOR_URL"):
-        orchestrator_url += "/file/device/discovery/register"
-        register_services_to_orchestrator(service_info, orchestrator_url)
-
-    atexit.register(teardown_zeroconf, app)
-
-
-def register_services_to_orchestrator(service_info: ServiceInfo, orchestrator_url):
-    """
-    Register services from zeroconf to orchestrator
-    ..todo:: Make calls async
-    """
-
-    logger.debug("Registering service %r to %r", service_info.name, orchestrator_url)
-    data={
-        "name": service_info.get_name(),
-        "type": service_info.type,
-        "port": service_info.port,
-        "properties": service_info.decoded_properties,
-        "addresses": service_info.parsed_addresses(),
-        "host": service_info.server
-    }
-    logger.debug(data)
-
-    try:
-        res = requests.post(orchestrator_url, data, timeout=10)
-        if not res.ok:
-            logger.error("Failed to register service to orchestrator: %r", res.text, extra={"response": res})
-            return False
-    except requests.RequestException as exc:
-        logger.error("Network error while registering service to orchestrator: %r", exc, exc_info=True)
-        return False
 
 def init_wasm_worker():
     """
@@ -330,19 +273,6 @@ def init_wasm_worker():
 
     # Stop the worker thread before exiting.
     atexit.register(teardown_worker)
-
-
-def teardown_zeroconf(app: Flask):
-    """
-    Stop advertising mdns services and tear down zeroconf.
-    """
-    try:
-        app.zeroconf.generate_unregister_all_services()
-    except TimeoutError:
-        logger.debug("Timeout while unregistering mdns services, handling it gracefully.", exc_info=True)
-
-    finally:
-        app.zeroconf.close()
 
 
 def get_listening_address(app: Flask) -> Tuple[str, int]:
