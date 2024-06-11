@@ -233,11 +233,12 @@ def create_app(*args, **kwargs) -> Flask:
     # Load config from instance/ -directory
     app.config.from_pyfile("config.py", silent=True)
 
+    # Load config from environment variables
+    app.config.from_prefixed_env("WASMIOT")
+
     # add sentry logging
     app.config.setdefault('SENTRY_DSN', os.environ.get('SENTRY_DSN'))
 
-    # add wasmiot-orchestrator logging endpoint
-    app.config.setdefault('WASMIOT_LOGGING_ENDPOINT', os.environ.get('WASMIOT_LOGGING_ENDPOINT'))
 
     from .logging.logger import init_app as init_logging  # pylint: disable=import-outside-toplevel
     init_logging(app, logger=logger)
@@ -277,8 +278,39 @@ def init_zeroconf(app: Flask):
     app.zeroconf = Zeroconf()
     app.zeroconf.register_service(service_info)
 
+    # Register service to orchestrator if ORCHESTRATOR_URL is set
+    if orchestrator_url := app.config.get("ORCHESTRATOR_URL"):
+        orchestrator_url += "/file/device/discovery/register"
+        register_services_to_orchestrator(service_info, orchestrator_url)
+
     atexit.register(teardown_zeroconf, app)
 
+
+def register_services_to_orchestrator(service_info: ServiceInfo, orchestrator_url):
+    """
+    Register services from zeroconf to orchestrator
+    ..todo:: Make calls async
+    """
+
+    logger.debug("Registering service %r to %r", service_info.name, orchestrator_url)
+    data={
+        "name": service_info.get_name(),
+        "type": service_info.type,
+        "port": service_info.port,
+        "properties": service_info.decoded_properties,
+        "addresses": service_info.parsed_addresses(),
+        "host": service_info.server
+    }
+    logger.debug(data)
+
+    try:
+        res = requests.post(orchestrator_url, data, timeout=10)
+        if not res.ok:
+            logger.error("Failed to register service to orchestrator: %r", res.text, extra={"response": res})
+            return False
+    except requests.RequestException as exc:
+        logger.error("Network error while registering service to orchestrator: %r", exc, exc_info=True)
+        return False
 
 def init_wasm_worker():
     """
