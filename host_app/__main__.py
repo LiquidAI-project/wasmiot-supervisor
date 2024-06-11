@@ -16,8 +16,9 @@ if __name__ == "__main__":
     os.environ.setdefault("FLASK_ENV", "development")
     os.environ.setdefault("FLASK_DEBUG", "1")
     # Set wasmiot-orchestrator logging endpoint to send logs to the orchestrator. ex-http://172.21.0.3:3000/device/logs
-    os.environ.setdefault("WASMIOT_LOGGING_ENDPOINT", "")
 
+    if orchestrator_url := os.environ.get("WASMIOT_ORCHESTRATOR_URL"):
+        os.environ.setdefault("WASMIOT_LOGGING_ENDPOINT", f"{orchestrator_url}/device/logs")
 
     #print('starting modules')
     #wasm_daemon = threading.Thread(name='wasm_daemon',
