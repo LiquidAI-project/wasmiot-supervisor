@@ -334,6 +334,13 @@ def thingi_health():
          "cpuUsage": random.random()
     })
 
+@bp.route('/module_results/<module_name>/<filename>')
+def get_module_result(module_name: str, filename: str):
+    """
+    Return the result file of a module execution.
+    """
+    return send_file(Path(INSTANCE_PARAMS_FOLDER, module_name, filename))
+
 def results_route(request_id=None, full=False):
     '''
     Return the route where execution/request results can be read from.
@@ -409,6 +416,9 @@ def run_module_function(deployment_id, module_name, function_name, filename=None
     else:
         # Send data to worker thread to handle non-blockingly.
         wasm_queue.put(entry)
+    
+    # Log the result of the execution.
+    get_logger(request).debug("Execution result: %r", entry.result, extra={"request": entry})
 
     # Return a link to this request's result (which could link further until
     # some useful value is found).
