@@ -418,7 +418,9 @@ def run_module_function(deployment_id, module_name, function_name, filename=None
         wasm_queue.put(entry)
     
     # Log the result of the execution.
-    get_logger(request).debug("Execution result: %r", entry.result, extra={"request": entry})
+    get_logger(request).debug("Execution result: %r", entry.result[0], extra={"request": entry})
+    if entry.result[1] is not None:
+        get_logger(request).debug("Result url: /module_results/%s/%s", entry.module_name, entry.result[1][0], extra={"request": entry})
 
     # Return a link to this request's result (which could link further until
     # some useful value is found).
