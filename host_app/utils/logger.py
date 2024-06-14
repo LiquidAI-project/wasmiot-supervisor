@@ -6,6 +6,8 @@ import requests
 import json
 import queue
 import socket
+from flask import current_app
+
 
 class JsonFormatter(logging.Formatter):
     """
@@ -15,6 +17,10 @@ class JsonFormatter(logging.Formatter):
         """
         Format the specified record as json string.
         """
+        from host_app.flask_app.app import get_listening_address  # pylint: disable=import-outside-toplevel
+        
+        ip, _ = get_listening_address(current_app)
+        
         record.asctime = self.formatTime(record, self.datefmt)
         json_message = {
             "timestamp": record.asctime,
@@ -22,7 +28,7 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
             "funcName": record.funcName,
             "deviceName": record.name,
-            "deviceIP": socket.gethostbyname(socket.gethostname()),
+            "deviceIP": ip,
         }
 
         # Add the extra information to the JSON message
