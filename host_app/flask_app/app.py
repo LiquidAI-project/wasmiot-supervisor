@@ -197,6 +197,13 @@ def make_history(entry: RequestEntry):
         entry.success = False
 
     request_history.append(entry)
+
+    # Log the result of the execution.
+    if entry.result[0] is not None:
+        get_logger(request).debug("Execution result: %r", entry.result[0], extra={"request": entry})
+    if entry.result[1] is not None:
+        get_logger(request).debug("Result url: /module_results/%s/%s", entry.module_name, entry.result[1][0], extra={"request": entry})
+
     return entry
 
 def wasm_worker():
@@ -417,11 +424,6 @@ def run_module_function(deployment_id, module_name, function_name, filename=None
         # Send data to worker thread to handle non-blockingly.
         wasm_queue.put(entry)
     
-    # Log the result of the execution.
-    get_logger(request).debug("Execution result: %r", entry.result[0], extra={"request": entry})
-    if entry.result[1] is not None:
-        get_logger(request).debug("Result url: /module_results/%s/%s", entry.module_name, entry.result[1][0], extra={"request": entry})
-
     # Return a link to this request's result (which could link further until
     # some useful value is found).
     return jsonify({ 'resultUrl': results_route(entry.request_id, full=True) })

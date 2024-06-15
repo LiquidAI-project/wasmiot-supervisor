@@ -18,8 +18,11 @@ class JsonFormatter(logging.Formatter):
         Format the specified record as json string.
         """
         from host_app.flask_app.app import get_listening_address  # pylint: disable=import-outside-toplevel
-        
-        ip, _ = get_listening_address(current_app)
+
+        # When using get_listening_address I get an error about the app context not being available.
+        # Tried fixing by adding "with current_app.app_context():" but it didn't work.
+        #ip, _ = get_listening_address(current_app)
+        ip = socket.gethostbyname(socket.gethostname())
         
         record.asctime = self.formatTime(record, self.datefmt)
         json_message = {
