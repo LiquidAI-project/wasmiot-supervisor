@@ -22,7 +22,9 @@ class JsonFormatter(logging.Formatter):
         # When using get_listening_address I get an error about the app context not being available.
         # Tried fixing by adding "with current_app.app_context():" but it didn't work.
         #ip, _ = get_listening_address(current_app)
-        ip = socket.gethostbyname(socket.gethostname())
+        ip = os.environ.get('WASMIOT_SUPERVISOR_IP')
+        if not ip:
+            ip = socket.gethostbyname(socket.gethostname())
         
         record.asctime = self.formatTime(record, self.datefmt)
         json_message = {

@@ -166,6 +166,15 @@ def do_wasm_work(entry: RequestEntry):
         module.name, entry.function_name, raw_output
     )
 
+    # Log the result of the execution of this one module function.
+    # Execution result is the primitive output of the function, if any
+    # Result URL is the URL where the a result file can be fetched from (if any)
+    if this_result[0] is not None:
+        get_logger(request).debug("Execution result: %s", entry.result[0], extra={"request": entry})
+    if this_result[1] is not None:
+        ip, port = get_listening_address(current_app)
+        get_logger(request).debug("Result url: http://%s:%s/module_results/%s/%s", ip, port, entry.module_name, this_result[1][0], extra={"request": entry})
+
     if not isinstance(next_call, CallData):
         # No sub-calls needed.
         return this_result
@@ -197,12 +206,6 @@ def make_history(entry: RequestEntry):
         entry.success = False
 
     request_history.append(entry)
-
-    # Log the result of the execution.
-    if entry.result[0] is not None:
-        get_logger(request).debug("Execution result: %r", entry.result[0], extra={"request": entry})
-    if entry.result[1] is not None:
-        get_logger(request).debug("Result url: /module_results/%s/%s", entry.module_name, entry.result[1][0], extra={"request": entry})
 
     return entry
 
