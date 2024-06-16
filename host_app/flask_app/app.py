@@ -170,7 +170,7 @@ def do_wasm_work(entry: RequestEntry):
     # Execution result is the primitive output of the function, if any
     # Result URL is the URL where the a result file can be fetched from (if any)
     if this_result[0] is not None:
-        get_logger(request).debug("Execution result: %s", entry.result[0], extra={"request": entry})
+        get_logger(request).debug("Execution result: %s", this_result[0], extra={"request": entry})
     if this_result[1] is not None:
         ip, port = get_listening_address(current_app)
         get_logger(request).debug("Result url: http://%s:%s/module_results/%s/%s", ip, port, entry.module_name, this_result[1][0], extra={"request": entry})
