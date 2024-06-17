@@ -186,7 +186,7 @@ def do_wasm_work(entry: RequestEntry):
 
     sub_response = getattr(requests, next_call.method)(
         next_call.url,
-        timeout=10,
+        timeout=30,
         files=files,
         headers=headers,
     )
