@@ -184,6 +184,11 @@ def do_wasm_work(entry: RequestEntry):
     # multi-file uploads, so I'm guessing it closes the opened files once done.
     files = { name: open(module_mount_path(module.name, name), "rb") for name in next_call.files }
 
+    get_logger(request).debug("Making sub-call from %r to %r", entry.module_name, next_call.url, extra={
+        "request": entry,
+        "next_call": next_call
+    })
+
     sub_response = getattr(requests, next_call.method)(
         next_call.url,
         timeout=30,
