@@ -304,11 +304,18 @@ def get_listening_address(app: Flask) -> Tuple[str, int]:
     host = None
     port = None
 
-    # Try guessing from server name, default path for flask.
-    server_name = app.config.get("SERVER_NAME")
-    if server_name:
-        host, _, port = server_name.partition(":")
-    port = port or app.config.get("PORT") or 5000
+    host = os.environ.get('SERVER_NAME', None)
+    port = os.environ.get('FLASK_PORT', 5000)
+
+    try:
+        with app.app_context():
+            # Try guessing from server name, default path for flask.
+            server_name = app.config.get("SERVER_NAME")
+            if server_name:
+                host, _, port = server_name.partition(":")
+            port = port or app.config.get("PORT") or 5000
+    except RuntimeError as exc:
+        logger.debug("Could not determine server name from flask app, as app context is not available")
 
     # Fallback
     if not host:
