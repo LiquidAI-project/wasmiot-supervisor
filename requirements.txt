@@ -2,7 +2,7 @@ python-dotenv
 flask
 zeroconf
 pyopenssl
-numpy
+numpy<2
 requests
 adafruit-circuitpython-dht
 sentry-sdk[flask]

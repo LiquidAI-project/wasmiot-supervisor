@@ -33,6 +33,16 @@ tag = true
 [[tool.bumpversion.files]]
 filename = "host_app/_version.py"
 
+[tool.pylint.format]
+max-line-length = 120
+
+[tool.pylint.messages_control]
+disable = [
+    "missing-timeout",
+]
+
+
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
+

@@ -12,6 +12,10 @@ import requests
 from host_app.utils.configuration import remote_functions
 from host_app.wasm_utils.wasm_api import WasmRuntime
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 if platform.system() != "Windows":
     import adafruit_dht
     import board
@@ -85,6 +89,27 @@ def python_get_humidity() -> float:
         return 0.0
 
 
+def capture_image():
+    """Capture an image from the first available camera."""
+    print("Capturing image")
+
+    for device in range(10):
+        try:
+            logger.debug("Trying to open camera %d", device)
+            cam = cv2.VideoCapture(device)  # type: ignore
+            _, img = cam.read()
+            cam.release()
+            if img is None:
+                logger.debug("Camera %d returned None", device)
+                continue
+            return img
+        except cv2.error as error:
+            logger.warning("Error opening camera %d: %s", device, error)
+            continue
+    else:
+        raise RuntimeError("No camera device found!")
+
+
 class Print(RemoteFunction):
     """Remote function generator for printing."""
     @property
@@ -114,9 +139,8 @@ class TakeImageDynamicSize(RemoteFunction):
             Store the pointer to the image in out_ptr_ptr and the size as in
             out_size_ptr both in 32bits LSB.
             """
-            cam = cv2.VideoCapture(0)  # type: ignore
-            _, img = cam.read()
-            cam.release()
+
+            img = capture_image()
 
             _, datatmp = cv2.imencode(".jpg", img)
             data = datatmp.tobytes()
@@ -155,9 +179,8 @@ class TakeImageStaticSize(RemoteFunction):
             Read the size of the image from size_ptr (32bit LSB) and store the
             image in out_ptr.
             """
-            cam = cv2.VideoCapture(0)  # type: ignore
-            _, img = cam.read()
-            cam.release()
+            
+            img = capture_image()
 
             try:
                 _, datatmp = cv2.imencode(".jpg", img)

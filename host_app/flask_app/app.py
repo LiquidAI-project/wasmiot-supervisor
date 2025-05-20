@@ -166,6 +166,15 @@ def do_wasm_work(entry: RequestEntry):
         module.name, entry.function_name, raw_output
     )
 
+    # Log the result of the execution of this one module function.
+    # Execution result is the primitive output of the function, if any
+    # Result URL is the URL where the a result file can be fetched from (if any)
+    if this_result[0] is not None:
+        get_logger(request).debug("Execution result: %s", this_result[0], extra={"request": entry})
+    if this_result[1] is not None:
+        ip, port = get_listening_address(current_app)
+        get_logger(request).debug("Result url: http://%s:%s/module_results/%s/%s", ip, port, entry.module_name, this_result[1][0], extra={"request": entry})
+
     if not isinstance(next_call, CallData):
         # No sub-calls needed.
         return this_result
@@ -175,9 +184,14 @@ def do_wasm_work(entry: RequestEntry):
     # multi-file uploads, so I'm guessing it closes the opened files once done.
     files = { name: open(module_mount_path(module.name, name), "rb") for name in next_call.files }
 
+    get_logger(request).debug("Making sub-call from %r to %r", entry.module_name, next_call.url, extra={
+        "request": entry,
+        "next_call": next_call
+    })
+
     sub_response = getattr(requests, next_call.method)(
         next_call.url,
-        timeout=10,
+        timeout=30,
         files=files,
         headers=headers,
     )
@@ -197,6 +211,7 @@ def make_history(entry: RequestEntry):
         entry.success = False
 
     request_history.append(entry)
+
     return entry
 
 def wasm_worker():
@@ -204,6 +219,7 @@ def wasm_worker():
     while entry := wasm_queue.get():
         make_history(entry)
         wasm_queue.task_done()
+
 
 def create_app(*args, **kwargs) -> Flask:
     '''
@@ -233,11 +249,11 @@ def create_app(*args, **kwargs) -> Flask:
     # Load config from instance/ -directory
     app.config.from_pyfile("config.py", silent=True)
 
+    # Load config from environment variables
+    app.config.from_prefixed_env("WASMIOT")
+
     # add sentry logging
     app.config.setdefault('SENTRY_DSN', os.environ.get('SENTRY_DSN'))
-
-    # add wasmiot-orchestrator logging endpoint
-    app.config.setdefault('WASMIOT_LOGGING_ENDPOINT', os.environ.get('WASMIOT_LOGGING_ENDPOINT'))
 
     from .logging.logger import init_app as init_logging  # pylint: disable=import-outside-toplevel
     init_logging(app, logger=logger)
@@ -245,39 +261,13 @@ def create_app(*args, **kwargs) -> Flask:
     app.register_blueprint(bp)
 
     # Enable mDNS advertising.
-    init_zeroconf(app)
+    from .zc import WebthingZeroconf # pylint: disable=import-outside-toplevel
+    WebthingZeroconf(app)
 
     # Start thread that handles the Wasm work queue.
     init_wasm_worker()
 
     return app
-
-
-def init_zeroconf(app: Flask):
-    """
-    Initialize zeroconf service
-    """
-    server_name = app.config['SERVER_NAME'] or socket.gethostname()
-    host, port = get_listening_address(app)
-
-    properties={
-        'path': '/',
-        'tls': 1 if app.config.get("PREFERRED_URL_SCHEME") == "https" else 0,
-    }
-
-    service_info = ServiceInfo(
-        type_='_webthing._tcp.local.',
-        name=f"{app.name}._webthing._tcp.local.",
-        addresses=[socket.inet_aton(host)],
-        port=port,
-        properties=properties,
-        server=f"{server_name}.local.",
-    )
-
-    app.zeroconf = Zeroconf()
-    app.zeroconf.register_service(service_info)
-
-    atexit.register(teardown_zeroconf, app)
 
 
 def init_wasm_worker():
@@ -300,19 +290,6 @@ def init_wasm_worker():
     atexit.register(teardown_worker)
 
 
-def teardown_zeroconf(app: Flask):
-    """
-    Stop advertising mdns services and tear down zeroconf.
-    """
-    try:
-        app.zeroconf.generate_unregister_all_services()
-    except TimeoutError:
-        logger.debug("Timeout while unregistering mdns services, handling it gracefully.", exc_info=True)
-
-    finally:
-        app.zeroconf.close()
-
-
 def get_listening_address(app: Flask) -> Tuple[str, int]:
     """
     Return the address Flask application is listening.
@@ -327,11 +304,18 @@ def get_listening_address(app: Flask) -> Tuple[str, int]:
     host = None
     port = None
 
-    # Try guessing from server name, default path for flask.
-    server_name = app.config.get("SERVER_NAME")
-    if server_name:
-        host, _, port = server_name.partition(":")
-    port = port or app.config.get("PORT") or int(os.environ.get("FLASK_PORT", "5000"))
+    host = os.environ.get('SERVER_NAME', None)
+    port = os.environ.get('FLASK_PORT', 5000)
+
+    try:
+        with app.app_context():
+            # Try guessing from server name, default path for flask.
+            server_name = app.config.get("SERVER_NAME")
+            if server_name:
+                host, _, port = server_name.partition(":")
+            port = port or app.config.get("PORT") or 5000
+    except RuntimeError as exc:
+        logger.debug("Could not determine server name from flask app, as app context is not available")
 
     # Fallback
     if not host:
@@ -371,6 +355,13 @@ def thingi_health():
     return jsonify({
          "cpuUsage": random.random()
     })
+
+@bp.route('/module_results/<module_name>/<filename>')
+def get_module_result(module_name: str, filename: str):
+    """
+    Return the result file of a module execution.
+    """
+    return send_file(Path(INSTANCE_PARAMS_FOLDER, module_name, filename))
 
 def results_route(request_id=None, full=False):
     '''

@@ -6,6 +6,8 @@ import requests
 import json
 import queue
 import socket
+from flask import current_app
+
 
 class JsonFormatter(logging.Formatter):
     """
@@ -15,6 +17,15 @@ class JsonFormatter(logging.Formatter):
         """
         Format the specified record as json string.
         """
+        from host_app.flask_app.app import get_listening_address  # pylint: disable=import-outside-toplevel
+
+        # When using get_listening_address I get an error about the app context not being available.
+        # Tried fixing by adding "with current_app.app_context():" but it didn't work.
+        #ip, _ = get_listening_address(current_app)
+        ip = os.environ.get('WASMIOT_SUPERVISOR_IP')
+        if not ip:
+            ip = socket.gethostbyname(socket.gethostname())
+        
         record.asctime = self.formatTime(record, self.datefmt)
         json_message = {
             "timestamp": record.asctime,
@@ -22,7 +33,7 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
             "funcName": record.funcName,
             "deviceName": record.name,
-            "deviceIP": socket.gethostbyname(socket.gethostname()),
+            "deviceIP": ip,
         }
 
         # Add the extra information to the JSON message
