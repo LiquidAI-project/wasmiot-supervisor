@@ -31,4 +31,4 @@ COPY --from=builder /python-venv /python-venv
 COPY . /app/
 
 WORKDIR /app
-CMD ["python3", "-m", "host_app"]
+CMD ["/python-venv/bin/python3", "-m", "host_app"]
