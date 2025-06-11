@@ -19,7 +19,7 @@ RUN apt-get update && \
         /python-venv/lib/python3*/site-packages/__pycache__
 
 # Setup the final image with the application code and the created virtual environment
-FROM ubuntu:24.04
+FROM ubuntu:24.04 AS final
 LABEL org.opencontainers.image.source="https://github.com/LiquidAI-project/wasmiot-supervisor"
 
 ENV LANG=C.UTF-8
