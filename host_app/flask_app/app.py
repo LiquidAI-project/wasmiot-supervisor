@@ -7,29 +7,21 @@ from dataclasses import dataclass, field
 import itertools
 import logging
 import os
-import random
 import socket
 from pathlib import Path
 import queue
-import string
-import struct
 import threading
 from typing import Any, Dict, Generator, Tuple
 
 import atexit
 from flask import Flask, Blueprint, jsonify, current_app, request, send_file
+import psutil
 from werkzeug.serving import get_sockaddr, select_address_family
 from werkzeug.serving import is_running_from_reloader
-from werkzeug.utils import secure_filename
 
 import requests
-from zeroconf import ServiceInfo, Zeroconf
 
-import cv2
-import numpy as np
-
-from host_app.wasm_utils.wasm import wasm_modules
-from host_app.wasm_utils.wasm_api import MLModel, ModuleConfig
+from host_app.wasm_utils.wasm_api import ModuleConfig
 from host_app.wasm_utils.wasmtime import WasmtimeRuntime
 
 from host_app.utils.configuration import get_device_description, get_wot_td
@@ -352,8 +344,12 @@ def thingi_description():
 def thingi_health():
     '''Return a report of the current health status of this thing'''
     get_logger(request).info("Health check done")
+    cpu_usage: float = psutil.cpu_percent(interval=0)
+    memory_info = psutil.virtual_memory()
+    memory_usage: float = memory_info.used / memory_info.total
     return jsonify({
-         "cpuUsage": random.random()
+         "cpuUsage": cpu_usage,
+         "memoryUsage": memory_usage
     })
 
 @bp.route('/module_results/<module_name>/<filename>')
