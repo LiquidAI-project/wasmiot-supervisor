@@ -12,6 +12,7 @@ from pathlib import Path
 import queue
 import threading
 from typing import Any, Dict, Generator, Tuple
+from urllib.parse import urlparse
 
 import atexit
 from flask import Flask, Blueprint, jsonify, current_app, request, send_file
@@ -28,7 +29,6 @@ from host_app.utils.configuration import get_device_description, get_wot_td
 from host_app.utils.routes import endpoint_failed
 from host_app.utils.deployment import Deployment, CallData
 from host_app.utils.logger import get_logger
-
 
 _MODULE_DIRECTORY = 'wasm-modules'
 _PARAMS_FOLDER = 'wasm-params'
@@ -217,6 +217,15 @@ def wasm_worker():
         wasm_queue.task_done()
 
 
+def is_valid_url(url: str):
+    """Check if the given url is valid"""
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except ValueError:
+        return False
+
+
 def create_app(*args, **kwargs) -> Flask:
     '''
     Create a new Flask application.
@@ -254,16 +263,10 @@ def create_app(*args, **kwargs) -> Flask:
     from .logging.logger import init_app as init_logging  # pylint: disable=import-outside-toplevel
     init_logging(app, logger=logger)
 
-    # How long to wait (in seconds) before renewing the registration
-    # if no health checks have been done by the orchestrator (default: 15 minutes)
-    register_renewal: float = float(os.environ.get("WASMIOT_REGISTER_RENEWAL", 900))
-
     # Enable mDNS advertising.
     from .zc import WebthingZeroconf # pylint: disable=import-outside-toplevel
-    zeroconf: WebthingZeroconf = WebthingZeroconf(app, register_renewal)
-    # WebthingZeroconf(app, register_renewal)
+    WebthingZeroconf(app)
 
-    bp.zeroconf_obj = zeroconf
     app.register_blueprint(bp)
 
     # Start thread that handles the Wasm work queue.
@@ -357,13 +360,46 @@ def thingi_health():
     memory_info = psutil.virtual_memory()
     memory_usage: float = memory_info.used / memory_info.total
     # Report the health check to the mDNS service
-    bp.zeroconf_obj.report_health_check()
+    try:
+        orchestrator_url = current_app.config.get("ORCHESTRATOR_URL", None)
+        if orchestrator_url and request.remote_addr == urlparse(orchestrator_url).hostname:
+            current_app.extensions["zc"].report_health_check()
+            get_logger(request).debug("Reporting health check done by the orchestrator")
+        else:
+            get_logger(request).debug("Not reporting health check since IP does not match orchestrator host")
+    except Exception as exc:  # pylint: disable=broad-except
+        get_logger(request).error("Error while reporting health check: %s", exc, exc_info=True)
 
     get_logger(request).info("Health check done")
     return jsonify({
          "cpuUsage": cpu_usage,
          "memoryUsage": memory_usage
     })
+
+@bp.route('/register', methods=['POST'])
+def register_orchestrator():
+    """Registers the URL of the orchestrator"""
+    data = request.get_json(silent=True)
+    if not data or "url" not in data:
+        get_logger(request).error("No url found")
+        return endpoint_failed(request, "No url found", 404)
+
+    orchestrator_url = data["url"]
+    if not is_valid_url(orchestrator_url):
+        get_logger(request).error("Orchestrator url is invalid")
+        return endpoint_failed(request, "Orchestrator url is invalid", 404)
+
+    try:
+        current_app.config["ORCHESTRATOR_URL"] = orchestrator_url
+        logging_endpoint = f"{orchestrator_url}/device/logs"
+        current_app.config["LOGGING_ENDPOINT"] = logging_endpoint
+        os.environ["WASMIOT_LOGGING_ENDPOINT"] = logging_endpoint
+        get_logger(request).info("Orchestrator registered at url %s", orchestrator_url)
+    except Exception as exc:  # pylint: disable=broad-except
+        get_logger(request).error("Error while registering orchestrator: %s", exc, exc_info=True)
+        return endpoint_failed(request, "Error while registering orchestrator", 500)
+
+    return jsonify({"status": "success"})
 
 @bp.route('/module_results/<module_name>/<filename>')
 def get_module_result(module_name: str, filename: str):

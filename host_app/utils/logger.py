@@ -25,7 +25,7 @@ class JsonFormatter(logging.Formatter):
         ip = os.environ.get('WASMIOT_SUPERVISOR_IP')
         if not ip:
             ip = socket.gethostbyname(socket.gethostname())
-        
+
         record.asctime = self.formatTime(record, self.datefmt)
         json_message = {
             "timestamp": record.asctime,
@@ -56,6 +56,7 @@ class RequestsHandler(HTTPHandler):
         self.logging_endpoint = os.getenv('WASMIOT_LOGGING_ENDPOINT', None)
         self.queue = queue.Queue(-1)
         self.queue_handler = QueueHandler(self.queue)
+        self.valid_handler: bool = True
 
         try:
             """
@@ -70,6 +71,7 @@ class RequestsHandler(HTTPHandler):
                 super().__init__('localhost', '/device/logs', method='POST')
         except Exception as e:
             print(f"Error initializing RequestsHandler: {e}")
+            self.valid_handler = False
 
         self.queue_listener = QueueListener(self.queue, self)
 
@@ -95,16 +97,20 @@ class RequestsHandler(HTTPHandler):
             if self.logging_endpoint:
                 url = f"{self.logging_endpoint}"
                 response = requests.post(url, data={'logData': log_entry})
+                self.valid_handler = response.status_code == 200
                 # print(f"Response: {response.status_code}, {response.text}")
             elif hasattr(self.request, 'remote_addr'):
                 url = f"http://{self.request.remote_addr}:3000/device/logs"
                 response = requests.post(url, data={'logData': log_entry})
                 print(f"Sent log: {log_entry}")
+                self.valid_handler = response.status_code == 200
                 # print(f"Response: {response.status_code}, {response.text}")
             else:
                 print("No remote address available for logging.")
+                self.valid_handler = False
         except Exception as e:
             print(f"Error sending log: {e}")
+            self.valid_handler = False
 
 def setup_logger(request):
     """
@@ -113,8 +119,16 @@ def setup_logger(request):
     # Create a logger with the name from the "FLASK_APP" environment variable
     logger = logging.getLogger(os.environ["FLASK_APP"])
 
-    # Set the logging level to DEBUG
-    logger.setLevel(logging.DEBUG)
+    # remove all current handlers
+    for handler in logger.handlers:
+        if isinstance(handler, RequestsHandler):
+            logger.removeHandler(handler)
+
+    # Set the logging level
+    if os.environ.get("FLASK_DEBUG") != "1":
+        logger.setLevel(logging.INFO)
+    else:
+        logger.setLevel(logging.DEBUG)
 
     # Create a RequestsHandler with the given request and set its formatter
     handler = RequestsHandler(request)
@@ -135,8 +149,11 @@ def get_logger(request):
     logger = logging.getLogger(logger_name)
 
     # Check if the logger has any handlers of type RequestsHandler
-    # If it doesn't, it means the logger hasn't been set up yet
-    if not any(isinstance(handler, RequestsHandler) for handler in logger.handlers):
+    # If it doesn't, it means the logger hasn't been set up yet properly
+    if not any(
+        isinstance(handler, RequestsHandler) and handler.valid_handler
+        for handler in logger.handlers
+    ):
         logger = setup_logger(request)
 
     return logger

@@ -3,6 +3,7 @@ Zeroconf registration for supervisor
 """
 
 import logging
+import os
 import socket
 import threading
 import time
@@ -13,18 +14,38 @@ from zeroconf import EventLoopBlocked, NonUniqueNameException, ServiceInfo, Zero
 
 from host_app.flask_app.app import get_listening_address
 
-logger = logging.getLogger(__name__)
 
+class CustomFormatter(logging.Formatter):
+    """Formatter for the log output from Zeroconf module."""
+    def format(self, record):
+        fmt = "[%(asctime)s] %(levelname)s in %(module)s: %(message)s"
+        datefmt = "%Y-%m-%d %H:%M:%S"
+        formatter = logging.Formatter(fmt, datefmt)
+        return formatter.format(record)
+
+
+# some add-hoc code to set up logging that uses stdout and does not produce context warnings
+logger = logging.getLogger(__name__)
+handler = logging.StreamHandler()
+if os.environ.get("FLASK_DEBUG") != "1":
+    handler.setLevel(logging.INFO)
+    logger.setLevel(logging.INFO)
+else:
+    handler.setLevel(logging.DEBUG)
+    logger.setLevel(logging.DEBUG)
+handler.setFormatter(CustomFormatter())
+logger.addHandler(handler)
+
+# Url path to register service to orchestrator
 URL_BASE_PATH = "/file/device/discovery/register"
-"Url path to register service to orchestrator"
+
 
 def wait_to_be_ready(app: Flask, callback: Callable, args=()):
     """
     Wait until the app is ready to serve requests
     """
     def _callback(app: Flask, callback: Callable):
-        with app.app_context():
-            app.logger.info("Waiting for app to be ready to call callback %r", callback.__name__)
+        app.logger.info("Waiting for app to be ready to call callback %r", callback.__name__)
         while True:
             try:
                 # This is a hack to wait for the app to be ready. It's not
@@ -32,17 +53,14 @@ def wait_to_be_ready(app: Flask, callback: Callable, args=()):
 
                 # Wait for socket to be open
                 with socket.create_connection(get_listening_address(app), timeout=1):
-                    with app.app_context():
-                        logger.debug("App is ready, calling callback %r", callback.__name__)
+                    app.logger.debug("App is ready, calling callback %r", callback.__name__)
                     break
 
             except ConnectionRefusedError as exc:
-                with app.app_context():
-                    logger.debug("Waiting for app to be ready: %s", exc)
+                app.logger.debug("Waiting for app to be ready: %s", exc)
                 time.sleep(1)
             except Exception as exc:  # pylint: disable=broad-except
-                with app.app_context():
-                    logger.error("Error while waiting for app to be ready: %s", exc, exc_info=True)
+                app.logger.error("Error while waiting for app to be ready: %s", exc, exc_info=True)
                 break
 
         return callback(*args)
@@ -86,15 +104,18 @@ class WebthingZeroconf:
     zeroconf: Zeroconf
     service_info: ServiceInfo
 
-    def __init__(self, app: Flask, register_renewal_time: float):
+    def __init__(self, app: Flask):
         """
         Register flask extension for zeroconf.
         """
         self.app = app
-        self.register_renewal_time = register_renewal_time
-        self.last_register_time: float = time.time()
         self.zeroconf = Zeroconf()
         app.extensions['zc'] = self
+
+        # How long to wait (in seconds) before renewing the registration
+        # if no health checks have been done by the orchestrator (default: 15 minutes)
+        self.register_renewal_time: float = float(app.config.get("REGISTER_RENEWAL", 900))
+        self.last_register_time: float = time.time()
 
         server_name = app.config['SERVER_NAME'] or socket.gethostname()
         host, port = get_listening_address(app)
@@ -132,22 +153,18 @@ class WebthingZeroconf:
         Starts the zeroconf service and if :prop:`Flask.config.ORCHESTRATOR_URL` is set,
         registers the service to the orchestrator.
         """
-
-        with self.app.app_context():
-            self.app.logger.debug("Starting zeroconf service broadcast for %r", self.service_info.name)
+        logger.debug("Starting zeroconf service broadcast for %r", self.service_info.name)
         try:
             self.zeroconf.register_service(self.service_info)
         except (NonUniqueNameException, EventLoopBlocked) as error:
-            with self.app.app_context():
-                self.app.logger.error("Failed to register service to zeroconf: %r", error, exc_info=True)
+            logger.error("Failed to register service to zeroconf: %r", error, exc_info=True)
 
         # Register service to orchestrator if ORCHESTRATOR_URL is set
         if orchestrator_url := self.app.config.get("ORCHESTRATOR_URL"):
             orchestrator_url += URL_BASE_PATH
             register_services_to_orchestrator(self.service_info, orchestrator_url)
         else:
-            with self.app.app_context():
-                self.app.logger.debug("ORCHESTRATOR_URL is not set, skipping manual registration")
+            logger.debug("ORCHESTRATOR_URL is not set, skipping manual registration")
 
         self.last_register_time = time.time()
 
@@ -158,8 +175,7 @@ class WebthingZeroconf:
         try:
             self.zeroconf.unregister_service(self.service_info)
         except TimeoutError:
-            with self.app.app_context():
-                self.app.logger.debug("Timeout while unregistering mdns services", exc_info=True)
+            logger.debug("Timeout while unregistering mdns services", exc_info=True)
 
         self.zeroconf.close()
 
@@ -177,15 +193,14 @@ class WebthingZeroconf:
             time_since_last_health_check = time.time() - self.last_register_time
 
             if time_since_last_health_check > self.register_renewal_time:
-                with self.app.app_context():
-                    self.app.logger.info("Health check timeout exceeded, re-registering service")
+                logger.info("Health check timeout exceeded, re-registering service")
 
-                    self.teardown_zeroconf()
-                    time.sleep(5)  # Wait a bit before restarting
+                self.teardown_zeroconf()
+                time.sleep(5)  # Wait a bit before restarting
 
-                    self.zeroconf = Zeroconf()
-                    self.app.extensions['zc'] = self
-                    self.register()
+                self.zeroconf = Zeroconf()
+                self.app.extensions['zc'] = self
+                self.register()
 
             time.sleep(10)  # Check every 10 seconds
 
