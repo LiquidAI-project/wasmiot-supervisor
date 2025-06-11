@@ -3,7 +3,7 @@ name: Supervisor Docker Image
 on:
   workflow_dispatch:
   push:
-    branches: 
+    branches:
       - "main"
     tags:
       - "v*"  # Push events to matching v*, i.e. v1.0, v20.15.10
@@ -51,7 +51,7 @@ jobs:
             # branch
             type=ref,event=branch
 
-      - name: Build and push fileserv
+      - name: Build and push supervisor
         uses: docker/build-push-action@v4
         with:
           context: .
@@ -70,3 +70,15 @@ jobs:
           cacheFrom: ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
           imageName: ${{ env.IMAGE_NAME }}
           imageTag: devcontainer
+
+      - name: Build and push production image when pushing to main
+        uses: docker/build-push-action@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          context: .
+          file: Dockerfile-production
+          target: base
+          platforms: ${{ env.PLATFORMS }}
+          push: true
+          tags: production
+          labels: ${{ steps.meta.outputs.labels }}

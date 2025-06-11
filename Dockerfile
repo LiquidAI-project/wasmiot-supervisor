@@ -8,7 +8,7 @@ LABEL org.opencontainers.image.source="https://github.com/LiquidAI-project/wasmi
 
 WORKDIR /app
 
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONUNBUFFERED=1
 
 # [Optional] Uncomment this section to install additional OS packages.
 RUN --mount=type=cache,target=/var/cache/apt \
@@ -38,14 +38,14 @@ ARG DEVICE_NAME
 # https://stackoverflow.com/questions/38438933/how-to-make-a-build-arg-mandatory-during-docker-build
 #RUN test -n "$DEVICE_NAME"
 
-ENV FLASK_APP ${DEVICE_NAME}
+ENV FLASK_APP=${DEVICE_NAME}
 
 FROM base AS vscode-devcontainer
 
 ARG SENTRY_ENVIRONMENT=devcontainer
 ENV SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT}
 
-ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONDONTWRITEBYTECODE=1
 
 RUN  --mount=type=cache,target=/root/.cache/pip \
     pip --disable-pip-version-check install -v -e .[dev]

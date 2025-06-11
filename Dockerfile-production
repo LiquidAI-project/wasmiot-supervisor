@@ -20,6 +20,7 @@ RUN apt-get update && \
 
 # Setup the final image with the application code and the created virtual environment
 FROM ubuntu:24.04
+LABEL org.opencontainers.image.source="https://github.com/LiquidAI-project/wasmiot-supervisor"
 
 ENV LANG=C.UTF-8
 RUN apt-get update && \
