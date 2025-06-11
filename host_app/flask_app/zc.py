@@ -9,7 +9,7 @@ import time
 from typing import Callable
 from flask import Flask
 import requests
-from zeroconf import ServiceInfo, Zeroconf
+from zeroconf import EventLoopBlocked, NonUniqueNameException, ServiceInfo, Zeroconf
 
 from host_app.flask_app.app import get_listening_address
 
@@ -23,7 +23,8 @@ def wait_to_be_ready(app: Flask, callback: Callable, args=()):
     Wait until the app is ready to serve requests
     """
     def _callback(app: Flask, callback: Callable):
-        app.logger.info("Waiting for app to be ready to call callback %r", callback.__name__)
+        with app.app_context():
+            app.logger.info("Waiting for app to be ready to call callback %r", callback.__name__)
         while True:
             try:
                 # This is a hack to wait for the app to be ready. It's not
@@ -31,14 +32,17 @@ def wait_to_be_ready(app: Flask, callback: Callable, args=()):
 
                 # Wait for socket to be open
                 with socket.create_connection(get_listening_address(app), timeout=1):
-                    app.logger.debug("App is ready, calling callback %r", callback.__name__)
+                    with app.app_context():
+                        logger.debug("App is ready, calling callback %r", callback.__name__)
                     break
 
             except ConnectionRefusedError as exc:
-                app.logger.debug("Waiting for app to be ready: %s", exc)
+                with app.app_context():
+                    logger.debug("Waiting for app to be ready: %s", exc)
                 time.sleep(1)
             except Exception as exc:  # pylint: disable=broad-except
-                app.logger.error("Error while waiting for app to be ready: %s", exc, exc_info=True)
+                with app.app_context():
+                    logger.error("Error while waiting for app to be ready: %s", exc, exc_info=True)
                 break
 
         return callback(*args)
@@ -70,6 +74,7 @@ def register_services_to_orchestrator(service_info: ServiceInfo, orchestrator_ur
         return False
     finally:
         logger.debug("Service registered to orchestrator: %r", data)
+    return True
 
 
 class WebthingZeroconf:
@@ -81,11 +86,13 @@ class WebthingZeroconf:
     zeroconf: Zeroconf
     service_info: ServiceInfo
 
-    def __init__(self, app: Flask):
+    def __init__(self, app: Flask, register_renewal_time: float):
         """
         Register flask extension for zeroconf.
         """
         self.app = app
+        self.register_renewal_time = register_renewal_time
+        self.last_register_time: float = time.time()
         self.zeroconf = Zeroconf()
         app.extensions['zc'] = self
 
@@ -108,6 +115,15 @@ class WebthingZeroconf:
         )
 
         wait_to_be_ready(app, self.register)
+        self.start_timeout_monitor()
+
+    def report_health_check(self):
+        """
+        Resets the last register time to the current time.
+        This method should be called when there has been a health check,
+        and thus it can be assumed that the registration has been successful.
+        """
+        self.last_register_time = time.time()
 
     def register(self):
         """
@@ -117,26 +133,61 @@ class WebthingZeroconf:
         registers the service to the orchestrator.
         """
 
-        self.app.logger.debug("Starting zeroconf service broadcast for %r", self.service_info.name)
-        self.zeroconf.register_service(self.service_info)
+        with self.app.app_context():
+            self.app.logger.debug("Starting zeroconf service broadcast for %r", self.service_info.name)
+        try:
+            self.zeroconf.register_service(self.service_info)
+        except (NonUniqueNameException, EventLoopBlocked) as error:
+            with self.app.app_context():
+                self.app.logger.error("Failed to register service to zeroconf: %r", error, exc_info=True)
 
         # Register service to orchestrator if ORCHESTRATOR_URL is set
         if orchestrator_url := self.app.config.get("ORCHESTRATOR_URL"):
             orchestrator_url += URL_BASE_PATH
             register_services_to_orchestrator(self.service_info, orchestrator_url)
         else:
-            self.app.logger.debug("ORCHESTRATOR_URL is not set, skipping manual registration")
+            with self.app.app_context():
+                self.app.logger.debug("ORCHESTRATOR_URL is not set, skipping manual registration")
+
+        self.last_register_time = time.time()
 
     def teardown_zeroconf(self):
         """
         Stop advertising mdns services and tear down zeroconf.
         """
         try:
-            self.zeroconf.generate_unregister_all_services()
+            self.zeroconf.unregister_service(self.service_info)
         except TimeoutError:
-            self.app.logger.debug("Timeout while unregistering mdns services, handling it gracefully.", exc_info=True)
+            with self.app.app_context():
+                self.app.logger.debug("Timeout while unregistering mdns services", exc_info=True)
 
         self.zeroconf.close()
+
+    def start_timeout_monitor(self):
+        """
+        Start a background thread to monitor the health check timeout.
+        """
+        threading.Thread(target=self._monitor_timeout, daemon=True).start()
+
+    def _monitor_timeout(self):
+        """
+        Monitor the health check timeout and restarts the mDNS service if needed.
+        """
+        while True:
+            time_since_last_health_check = time.time() - self.last_register_time
+
+            if time_since_last_health_check > self.register_renewal_time:
+                with self.app.app_context():
+                    self.app.logger.info("Health check timeout exceeded, re-registering service")
+
+                    self.teardown_zeroconf()
+                    time.sleep(5)  # Wait a bit before restarting
+
+                    self.zeroconf = Zeroconf()
+                    self.app.extensions['zc'] = self
+                    self.register()
+
+            time.sleep(10)  # Check every 10 seconds
 
     def __del__(self):
         self.teardown_zeroconf()

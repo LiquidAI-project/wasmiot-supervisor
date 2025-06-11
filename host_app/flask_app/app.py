@@ -60,6 +60,10 @@ FLASK_APP = os.environ.get("FLASK_APP", __name__)
 bp = Blueprint(os.environ["FLASK_APP"], os.environ["FLASK_APP"])
 
 logger = logging.getLogger(FLASK_APP)
+if os.environ.get("FLASK_DEBUG") != "1":
+    logger.setLevel(logging.INFO)
+else:
+    logger.setLevel(logging.DEBUG)
 
 deployments = {}
 """
@@ -250,11 +254,17 @@ def create_app(*args, **kwargs) -> Flask:
     from .logging.logger import init_app as init_logging  # pylint: disable=import-outside-toplevel
     init_logging(app, logger=logger)
 
-    app.register_blueprint(bp)
+    # How long to wait (in seconds) before renewing the registration
+    # if no health checks have been done by the orchestrator (default: 15 minutes)
+    register_renewal: float = float(os.environ.get("WASMIOT_REGISTER_RENEWAL", 900))
 
     # Enable mDNS advertising.
     from .zc import WebthingZeroconf # pylint: disable=import-outside-toplevel
-    WebthingZeroconf(app)
+    zeroconf: WebthingZeroconf = WebthingZeroconf(app, register_renewal)
+    # WebthingZeroconf(app, register_renewal)
+
+    bp.zeroconf_obj = zeroconf
+    app.register_blueprint(bp)
 
     # Start thread that handles the Wasm work queue.
     init_wasm_worker()
@@ -343,10 +353,13 @@ def thingi_description():
 @bp.route('/health')
 def thingi_health():
     '''Return a report of the current health status of this thing'''
-    get_logger(request).info("Health check done")
-    cpu_usage: float = psutil.cpu_percent(interval=0)
+    cpu_usage: float = psutil.cpu_percent(interval=0)  # NOTE: the first call will always return 0
     memory_info = psutil.virtual_memory()
     memory_usage: float = memory_info.used / memory_info.total
+    # Report the health check to the mDNS service
+    bp.zeroconf_obj.report_health_check()
+
+    get_logger(request).info("Health check done")
     return jsonify({
          "cpuUsage": cpu_usage,
          "memoryUsage": memory_usage
