@@ -33,8 +33,8 @@ def wait_to_be_ready(app: Flask, callback: Callable, args=()):
                 with socket.create_connection(get_listening_address(app), timeout=1):
                     app.logger.debug("App is ready, calling callback %r", callback.__name__)
                     break
-    
-            except ConnectionRefusedError as exc:  
+
+            except ConnectionRefusedError as exc:
                 app.logger.debug("Waiting for app to be ready: %s", exc)
                 time.sleep(1)
             except Exception as exc:  # pylint: disable=broad-except
@@ -95,6 +95,7 @@ class WebthingZeroconf:
         properties={
             'path': '/',
             'tls': 1 if app.config.get("PREFERRED_URL_SCHEME") == "https" else 0,
+            'address': socket.inet_ntoa(socket.inet_aton(host)),
         }
 
         self.service_info = ServiceInfo(

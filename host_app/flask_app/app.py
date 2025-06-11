@@ -438,7 +438,7 @@ def run_module_function(deployment_id, module_name, function_name, filename=None
     else:
         # Send data to worker thread to handle non-blockingly.
         wasm_queue.put(entry)
-    
+
     # Return a link to this request's result (which could link further until
     # some useful value is found).
     return jsonify({ 'resultUrl': results_route(entry.request_id, full=True) })
