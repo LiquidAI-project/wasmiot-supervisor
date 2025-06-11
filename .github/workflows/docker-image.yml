@@ -80,5 +80,5 @@ jobs:
           target: final
           platforms: ${{ env.PLATFORMS }}
           push: true
-          tags: production
+          tags: ${{ env.IMAGE_NAME }}:production
           labels: ${{ steps.meta.outputs.labels }}
