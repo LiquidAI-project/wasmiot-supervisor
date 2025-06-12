@@ -362,19 +362,26 @@ def thingi_health():
     # Report the health check to the mDNS service
     try:
         orchestrator_url = current_app.config.get("ORCHESTRATOR_URL", None)
-        if orchestrator_url and request.remote_addr == urlparse(orchestrator_url).hostname:
+        url_from_request = request.headers.get("X-Forwarded-For", request.remote_addr)
+        if orchestrator_url and url_from_request == urlparse(orchestrator_url).hostname:
             current_app.extensions["zc"].report_health_check()
             get_logger(request).debug("Reporting health check done by the orchestrator")
         else:
-            get_logger(request).debug("Not reporting health check since IP does not match orchestrator host")
+            get_logger(request).debug(
+                "Not reporting health check since IP does not match orchestrator host (%s vs %s)",
+                url_from_request, urlparse(orchestrator_url).hostname
+            )
     except Exception as exc:  # pylint: disable=broad-except
         get_logger(request).error("Error while reporting health check: %s", exc, exc_info=True)
 
     get_logger(request).info("Health check done")
-    return jsonify({
+    response = jsonify({
          "cpuUsage": cpu_usage,
          "memoryUsage": memory_usage
     })
+    # Use a custom header to indicate if the thing is registered with an orchestrator URL
+    response.headers["Custom-Orchestrator-Set"] = str(orchestrator_url is not None).lower()
+    return response
 
 @bp.route('/register', methods=['POST'])
 def register_orchestrator():
