@@ -179,7 +179,7 @@ class TakeImageStaticSize(RemoteFunction):
             Read the size of the image from size_ptr (32bit LSB) and store the
             image in out_ptr.
             """
-            
+
             img = capture_image()
 
             try:

@@ -7,36 +7,28 @@ from dataclasses import dataclass, field
 import itertools
 import logging
 import os
-import random
 import socket
 from pathlib import Path
 import queue
-import string
-import struct
 import threading
 from typing import Any, Dict, Generator, Tuple
+from urllib.parse import urlparse
 
 import atexit
 from flask import Flask, Blueprint, jsonify, current_app, request, send_file
+import psutil
 from werkzeug.serving import get_sockaddr, select_address_family
 from werkzeug.serving import is_running_from_reloader
-from werkzeug.utils import secure_filename
 
 import requests
-from zeroconf import ServiceInfo, Zeroconf
 
-import cv2
-import numpy as np
-
-from host_app.wasm_utils.wasm import wasm_modules
-from host_app.wasm_utils.wasm_api import MLModel, ModuleConfig
+from host_app.wasm_utils.wasm_api import ModuleConfig
 from host_app.wasm_utils.wasmtime import WasmtimeRuntime
 
 from host_app.utils.configuration import get_device_description, get_wot_td
 from host_app.utils.routes import endpoint_failed
 from host_app.utils.deployment import Deployment, CallData
 from host_app.utils.logger import get_logger
-
 
 _MODULE_DIRECTORY = 'wasm-modules'
 _PARAMS_FOLDER = 'wasm-params'
@@ -68,6 +60,10 @@ FLASK_APP = os.environ.get("FLASK_APP", __name__)
 bp = Blueprint(os.environ["FLASK_APP"], os.environ["FLASK_APP"])
 
 logger = logging.getLogger(FLASK_APP)
+if os.environ.get("FLASK_DEBUG") != "1":
+    logger.setLevel(logging.INFO)
+else:
+    logger.setLevel(logging.DEBUG)
 
 deployments = {}
 """
@@ -221,6 +217,15 @@ def wasm_worker():
         wasm_queue.task_done()
 
 
+def is_valid_url(url: str):
+    """Check if the given url is valid"""
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])
+    except ValueError:
+        return False
+
+
 def create_app(*args, **kwargs) -> Flask:
     '''
     Create a new Flask application.
@@ -258,11 +263,11 @@ def create_app(*args, **kwargs) -> Flask:
     from .logging.logger import init_app as init_logging  # pylint: disable=import-outside-toplevel
     init_logging(app, logger=logger)
 
-    app.register_blueprint(bp)
-
     # Enable mDNS advertising.
     from .zc import WebthingZeroconf # pylint: disable=import-outside-toplevel
     WebthingZeroconf(app)
+
+    app.register_blueprint(bp)
 
     # Start thread that handles the Wasm work queue.
     init_wasm_worker()
@@ -351,10 +356,57 @@ def thingi_description():
 @bp.route('/health')
 def thingi_health():
     '''Return a report of the current health status of this thing'''
+    cpu_usage: float = psutil.cpu_percent(interval=0)  # NOTE: the first call will always return 0
+    memory_info = psutil.virtual_memory()
+    memory_usage: float = memory_info.used / memory_info.total
+    # Report the health check to the mDNS service
+    try:
+        orchestrator_url = current_app.config.get("ORCHESTRATOR_URL", None)
+        url_from_request = request.headers.get("X-Forwarded-For", request.remote_addr)
+        if orchestrator_url and url_from_request == urlparse(orchestrator_url).hostname:
+            current_app.extensions["zc"].report_health_check()
+            get_logger(request).debug("Reporting health check done by the orchestrator")
+        else:
+            get_logger(request).debug(
+                "Not reporting health check since IP does not match orchestrator host (%s vs %s)",
+                url_from_request, urlparse(orchestrator_url).hostname
+            )
+    except Exception as exc:  # pylint: disable=broad-except
+        get_logger(request).error("Error while reporting health check: %s", exc, exc_info=True)
+
     get_logger(request).info("Health check done")
-    return jsonify({
-         "cpuUsage": random.random()
+    response = jsonify({
+         "cpuUsage": cpu_usage,
+         "memoryUsage": memory_usage
     })
+    # Use a custom header to indicate if the thing is registered with an orchestrator URL
+    response.headers["Custom-Orchestrator-Set"] = str(orchestrator_url is not None).lower()
+    return response
+
+@bp.route('/register', methods=['POST'])
+def register_orchestrator():
+    """Registers the URL of the orchestrator"""
+    data = request.get_json(silent=True)
+    if not data or "url" not in data:
+        get_logger(request).error("No url found")
+        return endpoint_failed(request, "No url found", 404)
+
+    orchestrator_url = data["url"]
+    if not is_valid_url(orchestrator_url):
+        get_logger(request).error("Orchestrator url is invalid")
+        return endpoint_failed(request, "Orchestrator url is invalid", 404)
+
+    try:
+        current_app.config["ORCHESTRATOR_URL"] = orchestrator_url
+        logging_endpoint = f"{orchestrator_url}/device/logs"
+        current_app.config["LOGGING_ENDPOINT"] = logging_endpoint
+        os.environ["WASMIOT_LOGGING_ENDPOINT"] = logging_endpoint
+        get_logger(request).info("Orchestrator registered at url %s", orchestrator_url)
+    except Exception as exc:  # pylint: disable=broad-except
+        get_logger(request).error("Error while registering orchestrator: %s", exc, exc_info=True)
+        return endpoint_failed(request, "Error while registering orchestrator", 500)
+
+    return jsonify({"status": "success"})
 
 @bp.route('/module_results/<module_name>/<filename>')
 def get_module_result(module_name: str, filename: str):
