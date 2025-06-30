@@ -114,7 +114,7 @@ class WebthingZeroconf:
 
         # How long to wait (in seconds) before renewing the registration
         # if no health checks have been done by the orchestrator (default: 15 minutes)
-        self.register_renewal_time: float = float(app.config.get("REGISTER_RENEWAL", 900))
+        self.register_renewal_time: float = float(app.config.get("REGISTER_RENEWAL_TIME", 900))
         self.last_register_time: float = time.time()
 
         server_name = app.config['SERVER_NAME'] or socket.gethostname()
