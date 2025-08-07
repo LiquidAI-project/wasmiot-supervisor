@@ -2,14 +2,36 @@
 
 Wasmiot supervisor is prototype implementation of self-adaptive supervisor for IoT devices. It is based on [WasmTime](https://wasmtime.dev/) and [Flask](https://flask.palletsprojects.com/).
 
+## Environment variables
+
+The following environment variables can be used to configure the supervisor:
+
+| Environment variable | Default value | Description |
+| -------------------- | ------------- | ----------- |
+| WASMIOT_SUPERVISOR_NAME | `host_app` | The name of the supervisor instance |
+| WASMIOT_SUPERVISOR_PORT | `5000` | The port on which the supervisor runs |
+| WASMIOT_ORCHESTRATOR_URL | | The URL of the orchestrator. If the supervisor is on the same network as the orchestrator this should not be needed but can still be given to ensure that the supervisor is registered to the orchestrator. |
+| FLASK_DEBUG | `1` | If set to `1` the supervisor will run in debug mode providing additional output. |
+| INSTANCE_PATH | `${pwd}/instance` | The path to the instance directory that is used to store configuration files and all the deployed module files |
+
+Some environment variables are provided for backwards compatibility:
+
+| Environment variable | Default value | Description |
+| -------------------- | ------------- | ----------- |
+| SUPERVISOR_NAME | `${WASMIOT_SUPERVISOR_NAME}` | Alias for `WASMIOT_SUPERVISOR_NAME`|
+| FLASK_APP | `${SUPERVISOR_NAME}` | Alias for `WASMIOT_SUPERVISOR_NAME` |
+| SUPERVISOR_PORT | `${WASMIOT_SUPERVISOR_PORT}` | Alias for `WASMIOT_SUPERVISOR_PORT` |
+| FLASK_PORT | `${SUPERVISOR_PORT}` | Alias for `WASMIOT_SUPERVISOR_PORT` |
+
 ## Installation
 
 Supervisor can be installed either manually on device, or using Docker.
 
 ### Docker
 
-Currently there is three (3) variations of images available:
+Currently there is four (4) variations of images available:
 - **ghcr.io/liquidai-project/wasmiot-supervisor:latest** - Latest "stable" version of supervisor. This is the one that should have working feature-set. Version number is the same as the version of the supervisor, and follows [semantic versioning](https://semver.org/) (e.g. `v0.1.0`). Note that at this point no guarantees of backwards compatibility are made.
+- **ghcr.io/liquidai-project/wasmiot-supervisor:production** - Similar to `latest` version, but should have a smaller image size. Uses the file `Dockerfile-production` instead of `Dockerfile`.
 - **ghcr.io/liquidai-project/wasmiot-supervisor:main** - Latest version of supervisor from `main` branch. This is the one that should be used for testing new features.
 - **ghcr.io/liquidai-project/wasmiot-supervisor:devcontainer** - Version of supervisor from `main` branch with VSCode devcontainer support. This is the default image used by VSCode devcontainer.
 
@@ -18,7 +40,8 @@ When running the supervisor in Docker, the automatic discovery of devices is not
 ### Manual installation
 
 #### Requirements
-- [Python3](https://www.python.org/downloads/)
+
+- [Python3](https://www.python.org/downloads/) (has been tested with 3.8 and some more recent versions)
 - Linux (for Windows users [WSL](https://learn.microsoft.com/en-us/windows/wsl/install))
   - `apt install gcc python3-dev` for installing `pywasm3`
 
