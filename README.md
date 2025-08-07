@@ -10,7 +10,8 @@ The following environment variables can be used to configure the supervisor:
 | -------------------- | ------------- | ----------- |
 | WASMIOT_SUPERVISOR_NAME | `host_app` | The name of the supervisor instance |
 | WASMIOT_SUPERVISOR_PORT | `5000` | The port on which the supervisor runs |
-| WASMIOT_ORCHESTRATOR_URL | | The URL of the orchestrator. If the supervisor is on the same network as the orchestrator this should not be needed but can still be given to ensure that the supervisor is registered to the orchestrator. |
+| WASMIOT_ORCHESTRATOR_URL || The URL of the orchestrator. If the supervisor is on the same network as the orchestrator this should not be needed but can still be given to ensure that the supervisor is registered to the orchestrator. |
+| WASMIOT_REGISTER_RENEWAL_TIME | 900 | How long to wait (in seconds) before trying to renew the orchestrator registration if no health checks have been done by the orchestrator |
 | FLASK_DEBUG | `1` | If set to `1` the supervisor will run in debug mode providing additional output. |
 | INSTANCE_PATH | `${pwd}/instance` | The path to the instance directory that is used to store configuration files and all the deployed module files |
 
